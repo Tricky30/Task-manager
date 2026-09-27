@@ -1,0 +1,22 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies and logs
+node_modules/
+*.log
+
+# Temporary archives and local runtime output
+*.tar.gz
+.sites-runtime/
