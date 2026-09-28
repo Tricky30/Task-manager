@@ -420,7 +420,7 @@
       }
       async function importCanvasCalendar(link) {
         const feedUrl = link.replace(/^webcal:\/\//i, 'https://');
-        const response = await fetch(feedUrl, { cache: 'no-store' });
+        const response = await fetch(`/api/canvas?url=${encodeURIComponent(feedUrl)}`, { cache: 'no-store' });
         if (!response.ok) throw new Error('Canvas calendar could not be loaded.');
         const text = await response.text();
         const items = parseCanvasCalendar(text);
@@ -508,7 +508,7 @@
           const result = await importCanvasCalendar(link);
           setCanvasStatus(result.added ? `Added ${result.added} Canvas item${result.added === 1 ? '' : 's'}.` : `No new Canvas items to add. ${result.total} already imported.`);
         } catch (error) {
-          setCanvasStatus(`${error.message} If Canvas blocks this link, open the Canvas calendar feed in your browser and try the copied .ics link again.`, true);
+          setCanvasStatus(`${error.message} Double-check that you pasted the full Canvas calendar feed link.`, true);
         } finally {
           document.querySelector('#importCanvasButton').disabled = false;
         }
