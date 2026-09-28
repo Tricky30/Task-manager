@@ -61,7 +61,14 @@
     .button.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
     .button.danger { background: var(--danger); }
     .icon-button { display: inline-grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--surface); font-size: 1.1rem; }
-    .calendar-card, .tasks-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+    .calendar-card, .tasks-card, .canvas-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+    .canvas-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 13px; align-items: end; margin-bottom: 18px; padding: 17px 20px; }
+    .canvas-card h2 { font-size: 1.08rem; letter-spacing: -.02em; }
+    .canvas-card p { margin-top: 3px; color: var(--muted); font-size: .9rem; }
+    .canvas-form { display: flex; gap: 9px; align-items: end; min-width: min(520px, 100%); }
+    .canvas-form .field { flex: 1; margin: 0; }
+    .import-status { grid-column: 1 / -1; color: var(--muted); font-size: .88rem; }
+    .import-status.error { color: var(--danger); font-weight: 700; }
     .calendar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid var(--line); }
     .calendar-toolbar h2 { font-size: 1.18rem; letter-spacing: -.02em; }
     .month-nav { display: flex; align-items: center; gap: 8px; }
@@ -123,6 +130,10 @@
       .topbar { align-items: flex-start; flex-direction: column; }
       .top-actions { width: 100%; }
       .top-actions .button { flex: 1; padding-inline: 9px; }
+      .canvas-card, .canvas-form { display: block; }
+      .canvas-card { padding: 15px 14px; }
+      .canvas-form { margin-top: 12px; }
+      .canvas-form .button { width: 100%; margin-top: 9px; }
       .calendar-card { border-radius: 14px; }
       .calendar-toolbar { padding: 13px 12px; }
       .weekdays div { font-size: .65rem; padding-inline: 2px; }
@@ -153,6 +164,18 @@
         <button class="button" id="addTaskButton">＋ Task</button>
       </div>
     </header>
+
+    <section class="canvas-card" aria-labelledby="canvasTitle">
+      <div>
+        <h2 id="canvasTitle">Canvas calendar</h2>
+        <p>Paste your Canvas calendar feed link to add tests, projects, and due dates here.</p>
+      </div>
+      <form class="canvas-form" id="canvasForm">
+        <div class="field"><label for="canvasUrl">Canvas calendar link</label><input id="canvasUrl" name="canvasUrl" type="url" placeholder="https://.../calendar.ics" autocomplete="off"></div>
+        <button class="button" type="submit" id="importCanvasButton">Import</button>
+      </form>
+      <p class="import-status" id="canvasStatus"></p>
+    </section>
 
     <section class="calendar-card" aria-labelledby="monthLabel">
       <div class="calendar-toolbar">
@@ -222,6 +245,7 @@
     (() => {
       const STORAGE_KEY = 'campus-planner-v1';
       const THEME_KEY = 'campus-planner-theme';
+      const CANVAS_URL_KEY = 'campus-planner-canvas-url';
       const pad = value => String(value).padStart(2, '0');
       const localDateTime = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
       const dateKey = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -247,6 +271,9 @@
       const taskDialog = document.querySelector('#taskDialog');
       const detailDialog = document.querySelector('#eventDetailDialog');
       const themeToggle = document.querySelector('#themeToggle');
+      const canvasForm = document.querySelector('#canvasForm');
+      const canvasUrl = document.querySelector('#canvasUrl');
+      const canvasStatus = document.querySelector('#canvasStatus');
 
       function openDialog(dialog) { if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', ''); }
       function closeDialog(dialog) { if (typeof dialog.close === 'function') dialog.close(); else dialog.removeAttribute('open'); }
@@ -256,7 +283,7 @@
           const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
           if (saved && Array.isArray(saved.events) && Array.isArray(saved.tasks)) {
             saved.events = saved.events.map(event => ({ repeat: 'none', ...event }));
-            saved.tasks = saved.tasks.map(task => ({ due: '', ...task }));
+            saved.tasks = saved.tasks.map(task => ({ due: '', source: '', sourceId: '', ...task }));
             return saved;
           }
         } catch (_) {}
@@ -342,6 +369,7 @@
       function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
       function moveTask(id, newIndex) { const oldIndex = state.tasks.findIndex(task => task.id === id); if (oldIndex < 0 || oldIndex === newIndex) return; const [task] = state.tasks.splice(oldIndex, 1); state.tasks.splice(newIndex, 0, task); saveState(); render(); }
       function removeTask(id) { state.tasks = state.tasks.filter(task => task.id !== id); saveState(); render(); }
+      function setCanvasStatus(message, isError = false) { canvasStatus.textContent = message; canvasStatus.classList.toggle('error', isError); }
 
       function eventsForDay(dayDate) {
         const key = dateKey(dayDate);
@@ -364,6 +392,49 @@
           if (!b.due) return -1;
           return a.due.localeCompare(b.due);
         });
+      }
+      function unfoldIcs(text) { return text.replace(/\r?\n[ \t]/g, ''); }
+      function parseIcsDate(value) {
+        const clean = value.replace(/^.*:/, '').trim();
+        if (/^\d{8}$/.test(clean)) return `${clean.slice(0,4)}-${clean.slice(4,6)}-${clean.slice(6,8)}T23:59`;
+        const match = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/);
+        if (!match) return '';
+        if (clean.endsWith('Z')) return localDateTime(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]))));
+        return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
+      }
+      function cleanIcsText(value) {
+        return value.replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+      function parseCanvasCalendar(text) {
+        const items = [];
+        const blocks = unfoldIcs(text).match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || [];
+        blocks.forEach(block => {
+          const lines = block.split(/\r?\n/);
+          const findLine = name => lines.find(line => line.startsWith(`${name}:`) || line.startsWith(`${name};`)) || '';
+          const title = cleanIcsText(findLine('SUMMARY').replace(/^SUMMARY[^:]*:/, ''));
+          const uid = cleanIcsText(findLine('UID').replace(/^UID[^:]*:/, '')) || title;
+          const due = parseIcsDate(findLine('DTSTART') || findLine('DUE') || findLine('DTEND'));
+          if (title && due) items.push({ title, due, sourceId: `canvas:${uid}` });
+        });
+        return items;
+      }
+      async function importCanvasCalendar(link) {
+        const response = await fetch(link, { cache: 'no-store' });
+        if (!response.ok) throw new Error('Canvas calendar could not be loaded.');
+        const text = await response.text();
+        const items = parseCanvasCalendar(text);
+        if (!items.length) throw new Error('No Canvas due dates were found in that calendar.');
+        let added = 0;
+        items.forEach(item => {
+          if (state.tasks.some(task => task.sourceId === item.sourceId)) return;
+          state.tasks.push({ id: makeId(), title: item.title, due: item.due, source: 'canvas', sourceId: item.sourceId });
+          added += 1;
+        });
+        sortTasksByDue(); saveState(); render();
+        const firstDue = items.find(item => item.due)?.due;
+        if (firstDue) viewedMonth = new Date(parseLocal(firstDue).getFullYear(), parseLocal(firstDue).getMonth(), 1);
+        renderCalendar();
+        return { added, total: items.length };
       }
       function openEventDialog(dayDate) {
         const start = dayDate ? new Date(dayDate) : new Date();
@@ -424,6 +495,23 @@
       document.querySelector('#previousMonth').addEventListener('click', () => { viewedMonth.setMonth(viewedMonth.getMonth() - 1); renderCalendar(); });
       document.querySelector('#nextMonth').addEventListener('click', () => { viewedMonth.setMonth(viewedMonth.getMonth() + 1); renderCalendar(); });
       document.querySelector('#todayButton').addEventListener('click', () => { const now = new Date(); viewedMonth = new Date(now.getFullYear(), now.getMonth(), 1); renderCalendar(); });
+      canvasUrl.value = localStorage.getItem(CANVAS_URL_KEY) || '';
+      canvasForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const link = canvasUrl.value.trim();
+        if (!link) { setCanvasStatus('Paste your Canvas calendar link first.', true); return; }
+        localStorage.setItem(CANVAS_URL_KEY, link);
+        document.querySelector('#importCanvasButton').disabled = true;
+        setCanvasStatus('Importing Canvas calendar...');
+        try {
+          const result = await importCanvasCalendar(link);
+          setCanvasStatus(result.added ? `Added ${result.added} Canvas item${result.added === 1 ? '' : 's'}.` : `No new Canvas items to add. ${result.total} already imported.`);
+        } catch (error) {
+          setCanvasStatus(`${error.message} If Canvas blocks this link, open the Canvas calendar feed in your browser and try the copied .ics link again.`, true);
+        } finally {
+          document.querySelector('#importCanvasButton').disabled = false;
+        }
+      });
       taskDialog.addEventListener('close', () => { editingTaskId = null; });
       function applyTheme(theme) {
         document.body.classList.toggle('dark', theme === 'dark');
