@@ -67,6 +67,10 @@
     .canvas-card p { margin-top: 3px; color: var(--muted); font-size: .9rem; }
     .canvas-form { display: flex; gap: 9px; align-items: end; min-width: min(520px, 100%); }
     .canvas-form .field { flex: 1; margin: 0; }
+    .canvas-manual { grid-column: 1 / -1; display: grid; gap: 9px; padding-top: 4px; }
+    .canvas-manual summary { width: fit-content; color: var(--accent); cursor: pointer; font-size: .9rem; font-weight: 750; }
+    textarea { width: 100%; min-height: 112px; resize: vertical; border: 1px solid #cbd3df; border-radius: 9px; padding: 9px 11px; color: var(--ink); background: var(--surface); font: inherit; }
+    textarea:focus { outline: 3px solid rgba(39,98,215,.15); border-color: var(--accent); }
     .import-status { grid-column: 1 / -1; color: var(--muted); font-size: .88rem; }
     .import-status.error { color: var(--danger); font-weight: 700; }
     .calendar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid var(--line); }
@@ -134,6 +138,7 @@
       .canvas-card { padding: 15px 14px; }
       .canvas-form { margin-top: 12px; }
       .canvas-form .button { width: 100%; margin-top: 9px; }
+      .canvas-manual .button { width: 100%; }
       .calendar-card { border-radius: 14px; }
       .calendar-toolbar { padding: 13px 12px; }
       .weekdays div { font-size: .65rem; padding-inline: 2px; }
@@ -174,6 +179,11 @@
         <div class="field"><label for="canvasUrl">Canvas calendar link</label><input id="canvasUrl" name="canvasUrl" type="url" placeholder="https://.../calendar.ics" autocomplete="off"></div>
         <button class="button" type="submit" id="importCanvasButton">Import</button>
       </form>
+      <details class="canvas-manual">
+        <summary>Paste calendar text instead</summary>
+        <div class="field"><label for="canvasText">Calendar text</label><textarea id="canvasText" placeholder="Paste the text that starts with BEGIN:VCALENDAR"></textarea></div>
+        <button class="button secondary" type="button" id="importCanvasTextButton">Import pasted text</button>
+      </details>
       <p class="import-status" id="canvasStatus"></p>
     </section>
 
@@ -273,6 +283,7 @@
       const themeToggle = document.querySelector('#themeToggle');
       const canvasForm = document.querySelector('#canvasForm');
       const canvasUrl = document.querySelector('#canvasUrl');
+      const canvasText = document.querySelector('#canvasText');
       const canvasStatus = document.querySelector('#canvasStatus');
 
       function openDialog(dialog) { if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', ''); }
@@ -421,8 +432,14 @@
       async function importCanvasCalendar(link) {
         const feedUrl = link.replace(/^webcal:\/\//i, 'https://');
         const response = await fetch(`/api/canvas?url=${encodeURIComponent(feedUrl)}`, { cache: 'no-store' });
-        if (!response.ok) throw new Error('Canvas calendar could not be loaded.');
+        if (!response.ok) {
+          const detail = await response.text().catch(() => '');
+          throw new Error(detail || 'Canvas calendar could not be loaded.');
+        }
         const text = await response.text();
+        return importCanvasText(text);
+      }
+      function importCanvasText(text) {
         const items = parseCanvasCalendar(text);
         if (!items.length) throw new Error('No Canvas due dates were found in that calendar.');
         let added = 0;
@@ -508,9 +525,17 @@
           const result = await importCanvasCalendar(link);
           setCanvasStatus(result.added ? `Added ${result.added} Canvas item${result.added === 1 ? '' : 's'}.` : `No new Canvas items to add. ${result.total} already imported.`);
         } catch (error) {
-          setCanvasStatus(`${error.message} Double-check that you pasted the full Canvas calendar feed link.`, true);
+          setCanvasStatus(`${error.message} If the link still will not load, open it in your browser and use "Paste calendar text instead."`, true);
         } finally {
           document.querySelector('#importCanvasButton').disabled = false;
+        }
+      });
+      document.querySelector('#importCanvasTextButton').addEventListener('click', () => {
+        try {
+          const result = importCanvasText(canvasText.value);
+          setCanvasStatus(result.added ? `Added ${result.added} Canvas item${result.added === 1 ? '' : 's'} from pasted text.` : `No new Canvas items to add. ${result.total} already imported.`);
+        } catch (error) {
+          setCanvasStatus(`${error.message} Make sure the pasted text starts with BEGIN:VCALENDAR.`, true);
         }
       });
       taskDialog.addEventListener('close', () => { editingTaskId = null; });
