@@ -32,19 +32,19 @@
       font: 16px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     body.dark {
-      --ink: #edf3ff;
-      --muted: #aebbd0;
-      --paper: #0e1726;
-      --surface: #162235;
-      --line: #2b3a52;
-      --accent: #8ab4ff;
-      --accent-soft: #223b65;
-      --event: #6bd8ca;
-      --event-soft: #183d3b;
-      --task: #ffd27b;
-      --task-soft: #493719;
-      --danger: #ff8f86;
-      --shadow: 0 18px 55px rgba(0, 0, 0, .24);
+      --ink: #ececf1;
+      --muted: #c5c5d2;
+      --paper: #212121;
+      --surface: #2f2f2f;
+      --line: #4a4a4a;
+      --accent: #19c37d;
+      --accent-soft: #1f3a31;
+      --event: #7dd3fc;
+      --event-soft: #1f3440;
+      --task: #f6d365;
+      --task-soft: #3c3320;
+      --danger: #ff8a80;
+      --shadow: 0 18px 55px rgba(0, 0, 0, .28);
     }
     button, input, select { font: inherit; }
     button { cursor: pointer; }
@@ -60,6 +60,10 @@
     .button:hover { transform: translateY(-1px); box-shadow: 0 7px 16px rgba(19,34,56,.16); }
     .button.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
     .button.danger { background: var(--danger); }
+    body.dark .button { background: var(--accent); color: #0f0f0f; }
+    body.dark .button.secondary { background: #3a3a3a; color: var(--ink); border-color: #555; }
+    body.dark .button.danger { background: #d95c56; color: #fff; }
+    body.dark input, body.dark select, body.dark textarea { border-color: #565869; }
     .icon-button { display: inline-grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--surface); font-size: 1.1rem; }
     .calendar-card, .tasks-card, .canvas-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
     .canvas-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 13px; align-items: end; margin-bottom: 18px; padding: 17px 20px; }
@@ -100,6 +104,12 @@
     .tasks-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 20px; border-bottom: 1px solid var(--line); }
     .tasks-header h2 { font-size: 1.3rem; letter-spacing: -.03em; }
     .tasks-header p { margin-top: 4px; color: var(--muted); font-size: .9rem; }
+    .task-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+    .task-section { min-width: 0; }
+    .task-section + .task-section { border-left: 1px solid var(--line); }
+    .task-section-head { padding: 16px 20px 9px; border-bottom: 1px solid var(--line); }
+    .task-section-head h3 { margin: 0; font-size: 1rem; letter-spacing: -.02em; }
+    .task-section-head p { margin: 3px 0 0; color: var(--muted); font-size: .84rem; }
     .task-list { list-style: none; margin: 0; padding: 0 20px; }
     .task-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 13px; padding: 15px 0; border-bottom: 1px solid var(--line); background: var(--surface); }
     .task-row:last-child { border-bottom: 0; }
@@ -148,6 +158,8 @@
       .more { display: none; }
       .legend { padding-inline: 12px; }
       .tasks-header { align-items: flex-start; }
+      .task-sections { grid-template-columns: 1fr; }
+      .task-section + .task-section { border-left: 0; border-top: 1px solid var(--line); }
       .task-list { padding: 0 14px; }
       .task-row { grid-template-columns: 24px minmax(0, 1fr) auto; gap: 9px; }
       .priority-number { display: none; }
@@ -208,8 +220,18 @@
         <div><h2 id="tasksTitle">Priority list</h2><p>Drag tasks or use the arrows to reorder them.</p></div>
         <button class="button" id="addTaskButtonSecondary">＋ Add task</button>
       </div>
-      <ol class="task-list" id="taskList"></ol>
-      <div class="empty" id="emptyTasks"><strong>No tasks yet</strong>Add your first task to start planning.</div>
+      <div class="task-sections">
+        <section class="task-section" aria-labelledby="manualTasksTitle">
+          <div class="task-section-head"><h3 id="manualTasksTitle">My tasks</h3><p>Stuff you added yourself.</p></div>
+          <ol class="task-list" id="manualTaskList"></ol>
+          <div class="empty" id="emptyManualTasks"><strong>No personal tasks yet</strong>Add a task when something comes up.</div>
+        </section>
+        <section class="task-section" aria-labelledby="canvasTasksTitle">
+          <div class="task-section-head"><h3 id="canvasTasksTitle">Canvas tasks</h3><p>Imported tests, projects, and due dates.</p></div>
+          <ol class="task-list" id="canvasTaskList"></ol>
+          <div class="empty" id="emptyCanvasTasks"><strong>No Canvas tasks yet</strong>Import your Canvas calendar when you are ready.</div>
+        </section>
+      </div>
     </section>
   </main>
 
@@ -274,8 +296,10 @@
       let editingTaskId = null;
 
       const calendarGrid = document.querySelector('#calendarGrid');
-      const taskList = document.querySelector('#taskList');
-      const emptyTasks = document.querySelector('#emptyTasks');
+      const manualTaskList = document.querySelector('#manualTaskList');
+      const canvasTaskList = document.querySelector('#canvasTaskList');
+      const emptyManualTasks = document.querySelector('#emptyManualTasks');
+      const emptyCanvasTasks = document.querySelector('#emptyCanvasTasks');
       const monthLabel = document.querySelector('#monthLabel');
       const eventDialog = document.querySelector('#eventDialog');
       const taskDialog = document.querySelector('#taskDialog');
@@ -343,9 +367,14 @@
       }
 
       function renderTasks() {
-        taskList.innerHTML = '';
-        emptyTasks.hidden = state.tasks.length > 0;
-        state.tasks.forEach((task, index) => {
+        renderTaskSection(manualTaskList, emptyManualTasks, state.tasks.filter(task => task.source !== 'canvas'));
+        renderTaskSection(canvasTaskList, emptyCanvasTasks, state.tasks.filter(task => task.source === 'canvas'));
+      }
+
+      function renderTaskSection(list, empty, tasks) {
+        list.innerHTML = '';
+        empty.hidden = tasks.length > 0;
+        tasks.forEach((task, index) => {
           const li = document.createElement('li');
           li.className = 'task-row';
           li.draggable = true;
@@ -365,20 +394,27 @@
           li.addEventListener('dragstart', event => { draggedTaskId = task.id; li.classList.add('dragging'); event.dataTransfer.effectAllowed = 'move'; });
           li.addEventListener('dragend', () => { draggedTaskId = null; li.classList.remove('dragging'); });
           li.addEventListener('dragover', event => event.preventDefault());
-          li.addEventListener('drop', event => { event.preventDefault(); if (draggedTaskId && draggedTaskId !== task.id) moveTask(draggedTaskId, state.tasks.findIndex(item => item.id === task.id)); });
+          li.addEventListener('drop', event => { event.preventDefault(); if (draggedTaskId && draggedTaskId !== task.id) moveTaskInGroup(draggedTaskId, task.id); });
           li.addEventListener('click', event => {
             const action = event.target.dataset.action;
             if (action === 'edit') openTaskDialog(task.id);
             if (action === 'remove') removeTask(task.id);
-            if (action === 'up') moveTask(task.id, Math.max(0, index - 1));
-            if (action === 'down') moveTask(task.id, Math.min(state.tasks.length - 1, index + 1));
+            if (action === 'up') moveTaskInGroup(task.id, tasks[Math.max(0, index - 1)]?.id);
+            if (action === 'down') moveTaskInGroup(task.id, tasks[Math.min(tasks.length - 1, index + 1)]?.id);
           });
-          taskList.appendChild(li);
+          list.appendChild(li);
         });
       }
 
       function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
       function moveTask(id, newIndex) { const oldIndex = state.tasks.findIndex(task => task.id === id); if (oldIndex < 0 || oldIndex === newIndex) return; const [task] = state.tasks.splice(oldIndex, 1); state.tasks.splice(newIndex, 0, task); saveState(); render(); }
+      function moveTaskInGroup(id, targetId) {
+        if (!targetId || id === targetId) return;
+        const moving = state.tasks.find(task => task.id === id);
+        const target = state.tasks.find(task => task.id === targetId);
+        if (!moving || !target || (moving.source === 'canvas') !== (target.source === 'canvas')) return;
+        moveTask(id, state.tasks.findIndex(task => task.id === targetId));
+      }
       function removeTask(id) { state.tasks = state.tasks.filter(task => task.id !== id); saveState(); render(); }
       function setCanvasStatus(message, isError = false) { canvasStatus.textContent = message; canvasStatus.classList.toggle('error', isError); }
 
