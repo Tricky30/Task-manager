@@ -138,6 +138,11 @@
     select:focus { outline: 3px solid rgba(39,98,215,.15); border-color: var(--accent); }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
     .detail-meta { color: var(--muted); margin-top: 7px; }
+    .day-detail-list { display: grid; gap: 9px; margin: 14px 0 4px; }
+    .day-detail-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; background: color-mix(in srgb, var(--surface) 88%, var(--paper)); }
+    .day-detail-kind { color: var(--muted); font-size: .76rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .day-detail-title { margin-top: 2px; font-weight: 780; overflow-wrap: anywhere; }
+    .day-detail-time { margin-top: 2px; color: var(--muted); font-size: .86rem; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     @media (max-width: 720px) {
       .app { width: min(100% - 18px, 1180px); padding-top: 16px; }
@@ -273,6 +278,16 @@
     <div class="dialog-body"><p class="detail-meta" id="detailTime"></p><div class="dialog-actions"><button type="button" class="button secondary close-dialog">Close</button><button type="button" class="button danger" id="deleteEvent">Delete event</button></div></div>
   </dialog>
 
+  <dialog id="dayDialog">
+    <div class="dialog-head"><h2 id="dayTitle">Day</h2><button type="button" class="icon-button close-dialog" aria-label="Close">×</button></div>
+    <div class="dialog-body">
+      <p class="detail-meta" id="daySummary"></p>
+      <div class="day-detail-list" id="dayDetailList"></div>
+      <div class="empty" id="emptyDayItems"><strong>Nothing scheduled</strong>Add a task or event for this day.</div>
+      <div class="dialog-actions"><button type="button" class="button secondary" id="addTaskForDay">Add task</button><button type="button" class="button" id="addEventForDay">Add event</button></div>
+    </div>
+  </dialog>
+
   <script>
     (() => {
       const STORAGE_KEY = 'campus-planner-v1';
@@ -294,6 +309,7 @@
       let selectedEventId = null;
       let selectedOccurrenceStart = null;
       let editingTaskId = null;
+      let selectedDay = null;
 
       const calendarGrid = document.querySelector('#calendarGrid');
       const manualTaskList = document.querySelector('#manualTaskList');
@@ -304,6 +320,7 @@
       const eventDialog = document.querySelector('#eventDialog');
       const taskDialog = document.querySelector('#taskDialog');
       const detailDialog = document.querySelector('#eventDetailDialog');
+      const dayDialog = document.querySelector('#dayDialog');
       const themeToggle = document.querySelector('#themeToggle');
       const canvasForm = document.querySelector('#canvasForm');
       const canvasUrl = document.querySelector('#canvasUrl');
@@ -349,8 +366,8 @@
             ...eventsForDay(dayDate).map(event => ({ ...event, kind: 'event', when: event.occurrenceStart })),
             ...state.tasks.filter(task => task.due && task.due.slice(0,10) === key).map(task => ({ ...task, kind: 'task', when: task.due }))
           ].sort((a,b) => a.when.localeCompare(b.when));
-          cell.addEventListener('click', () => openEventDialog(dayDate));
-          cell.addEventListener('keydown', event => { if (event.target === cell && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openEventDialog(dayDate); } });
+          cell.addEventListener('click', () => showDayDetail(dayDate));
+          cell.addEventListener('keydown', event => { if (event.target === cell && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); showDayDetail(dayDate); } });
           items.slice(0, 3).forEach(item => {
             const button = document.createElement('button');
             button.className = `calendar-item ${item.kind}`;
@@ -440,6 +457,13 @@
           return a.due.localeCompare(b.due);
         });
       }
+      function itemsForDay(dayDate) {
+        const key = dateKey(dayDate);
+        return [
+          ...eventsForDay(dayDate).map(event => ({ ...event, kind: 'event', when: event.occurrenceStart })),
+          ...state.tasks.filter(task => task.due && task.due.slice(0,10) === key).map(task => ({ ...task, kind: 'task', when: task.due }))
+        ].sort((a,b) => a.when.localeCompare(b.when));
+      }
       function unfoldIcs(text) { return text.replace(/\r?\n[ \t]/g, ''); }
       function parseIcsDate(value) {
         const clean = value.replace(/^.*:/, '').trim();
@@ -501,16 +525,36 @@
         document.querySelector('#eventRepeat').value = 'none';
         openDialog(eventDialog); document.querySelector('#eventTitle').focus();
       }
-      function openTaskDialog(taskId = null) {
+      function openTaskDialog(taskId = null, dayDate = null) {
         const form = document.querySelector('#taskForm');
         form.reset();
         editingTaskId = taskId;
         const task = taskId ? state.tasks.find(item => item.id === taskId) : null;
+        const due = new Date(dayDate || new Date());
+        if (dayDate) due.setHours(23, 59, 0, 0);
         document.querySelector('#taskDialog .dialog-head h2').textContent = task ? 'Edit task' : 'Add task';
         document.querySelector('#taskSubmit').textContent = task ? 'Save task' : 'Add task';
         document.querySelector('#taskTitle').value = task?.title || '';
-        document.querySelector('#taskDue').value = task?.due || '';
+        document.querySelector('#taskDue').value = task?.due || (dayDate ? localDateTime(due) : '');
         openDialog(taskDialog); document.querySelector('#taskTitle').focus();
+      }
+      function showDayDetail(dayDate) {
+        selectedDay = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+        const items = itemsForDay(selectedDay);
+        document.querySelector('#dayTitle').textContent = selectedDay.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+        document.querySelector('#daySummary').textContent = items.length ? `${items.length} item${items.length === 1 ? '' : 's'} scheduled` : 'No tasks or events yet';
+        const list = document.querySelector('#dayDetailList');
+        list.innerHTML = '';
+        document.querySelector('#emptyDayItems').hidden = items.length > 0;
+        items.forEach(item => {
+          const row = document.createElement('div');
+          row.className = 'day-detail-item';
+          const kind = item.kind === 'task' ? (item.source === 'canvas' ? 'Canvas task' : 'Task') : 'Event';
+          const endText = item.kind === 'event' ? ` - ${formatTime(item.occurrenceEnd || item.end)}` : '';
+          row.innerHTML = `<div class="day-detail-kind">${kind}</div><div class="day-detail-title">${escapeHtml(item.title)}</div><div class="day-detail-time">${formatTime(item.when)}${endText}</div>`;
+          list.appendChild(row);
+        });
+        openDialog(dayDialog);
       }
       function showEventDetail(id, occurrenceStart = null) {
         const event = state.events.find(item => item.id === id); if (!event) return;
@@ -546,6 +590,8 @@
       document.querySelector('#addEventButton').addEventListener('click', () => openEventDialog());
       document.querySelector('#addTaskButton').addEventListener('click', () => openTaskDialog());
       document.querySelector('#addTaskButtonSecondary').addEventListener('click', () => openTaskDialog());
+      document.querySelector('#addEventForDay').addEventListener('click', () => { const day = selectedDay ? new Date(selectedDay) : new Date(); closeDialog(dayDialog); openEventDialog(day); });
+      document.querySelector('#addTaskForDay').addEventListener('click', () => { const day = selectedDay ? new Date(selectedDay) : new Date(); closeDialog(dayDialog); openTaskDialog(null, day); });
       document.querySelector('#previousMonth').addEventListener('click', () => { viewedMonth.setMonth(viewedMonth.getMonth() - 1); renderCalendar(); });
       document.querySelector('#nextMonth').addEventListener('click', () => { viewedMonth.setMonth(viewedMonth.getMonth() + 1); renderCalendar(); });
       document.querySelector('#todayButton').addEventListener('click', () => { const now = new Date(); viewedMonth = new Date(now.getFullYear(), now.getMonth(), 1); renderCalendar(); });
